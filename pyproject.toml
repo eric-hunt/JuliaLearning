@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "julialearning"
+version = "0.1.0"
+description = ""
+authors = ["Eric Hunt <52219938+eric-hunt@users.noreply.github.com>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+jupyterlab = "^4.0.1"
+jupyterlab-quarto = "^0.1.45"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
