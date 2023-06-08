@@ -4,5 +4,12 @@ project:
 execute: 
   freeze: auto
 format:
-  gfm:
-    preview-mode: raw
+  html:
+    embed-resources: true
+    theme:
+      light: litera
+      dark: solar
+    fontsize: 1em
+    linestretch: 1.5
+    highlight-style: gruvbox
+    df-print: paged
