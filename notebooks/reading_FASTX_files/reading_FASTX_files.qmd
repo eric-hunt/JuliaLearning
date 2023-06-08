@@ -1,0 +1,156 @@
+---
+title: "Reading FASTA and FASTQ files"
+author: "Eric Hunt"
+date: "2023-06-08"
+jupyter: julia-1.9
+---
+
+### Package dependencies
+
+```{julia}
+using FASTX
+```
+
+## The problem
+
+*Uhh.. well.. my problem. Someone out there understands all this perfectly.* 😆
+
+Using the `FASTA`/`FASTQ.Reader` structs from FASTX.jl[^1], which wrap around an IO, has been confusing me -- particularly because the `do` block syntax makes things less straighforward to immediately understand.
+
+Below is a typical `do` block for using `Base.open` by dispatching the method:
+
+```
+open(f::Function, args...; kwargs...)
+```
+
+The docs for this method state:
+
+>Apply the function f to the result of open(args...; kwargs...) and close the resulting file descriptor upon completion.
+
+So let's open an example FASTA file and see what we get:
+
+```{julia}
+example_file = open("example.fasta", "r") do io
+    FASTAReader(io)
+end
+```
+
+We get a `FASTX.FASTA.Reader` (`FASTAReader`) with a `NoopStream` IO stream type. Sweet. I'd love to tell you exactly what this means, but I don't really know. I think it means that the IO stream was present, but the `do` block dispatch of the `Base.open` method shown above closed it before we really did anything with it, so now we have a placeholder "no-operation" stream that essentially produces nothing.
+
+Looking into the FASTX.jl docs[^2] they say:
+
+>Readers and writers take control over the underlying IO, and manipulating the IO underneath a Reader/Writer, e.g. by flushing or closing it, cause them to behave in an undefined manner.
+>
+>Closing readers/writers closes the underlying IO. Because they carry their own buffers, it's important to remember to close writers in particular, else the results may not be fully written to the file.
+
+> Readers are iterables of `Record`.
+
+So can we do something like this..?
+
+```{julia}
+for record in example_file
+    @show record
+end
+```
+
+..alas, no, because the Reader IO was closed and there aren't any records in an no-op stream. 🫥
+
+Somewhat related -- and also probably indicative of my technical understanding or lack thereof -- you can't reopen or initiate the no-op stream to iterate through records because, perhaps unsurprisingly, there is no `open` method to dispatch on type `::FASTX.FASTA.Reader{TranscodingStreams.NoopStream{IOStream}}`.
+
+
+```{julia}
+#| error: true
+begin
+    io = open(example_file)
+    for record in io
+        @show record
+    end
+    close(io)
+end
+```
+
+## The solution
+
+Instead, you must open the IO stream, iterate through the `FASTA.Record`s (`FASTARecord`s) while the Reader has control of the underlying IO, and *then* close it.
+
+
+```{julia}
+begin
+    reader = FASTAReader(open("example.fasta"))
+    record = first(reader)
+    println(typeof(record))
+    @show record # using FASTX.jl Base.show(io::IO, record::Record) method
+    @show sequence(record) # field accessor for FASTARecord
+    close(reader)
+end
+```
+
+This is why the `do` block syntax works..
+
+```{julia}
+open(FASTAReader, "example.fasta") do reader
+    for record in reader
+        @show record
+    end
+end
+```
+
+You're dispatching on the `open(f::Function, args...; kwargs...)` method twice:
+
+1. You dispatch `Base.open` as `open(f::Function, args...; kwargs...)` with the `do` block syntax which passes an anonymous function (the control flow `for` loop) back as the first argument.
+
+2. Next, the anonymous function is applied to dispactching `Base.open` on the `args...; kwargs...` part, for which the first argument is another function, the `FASTAReader` constructor. So you end up dipatching the same `open(f::Function, args...; kwargs...)` method again.
+
+3. Finally, that `FASTAReader` constructor is applied to dispatching `Base.open` (in the same manner as above) on the `args...; kwargs...` part, which is now just `open([file])`, and the `FASTAReader` takes control of that underlying IO stream.
+
+I've tried to further demonstrate this by creating an anonymous iterator instead:
+
+```{julia}
+open(
+    reader -> for record in reader
+        @show record
+    end,
+    FASTAReader,
+    "example.fasta"
+)
+```
+
+## Summary
+
+So to put it all together, you might do something like this:
+
+```{julia}
+begin
+    records = Vector{FASTARecord}()
+
+    open(FASTAReader, "example.fasta") do reader
+        for record in reader
+            push!(records, record)
+        end
+    end
+
+    records
+end
+```
+
+Now we can access each record as a vector element:
+
+```{julia}
+[1:length(records) .=> description.(records)]
+```
+
+
+```{julia}
+records[1]
+```
+
+---
+
+## Closing & Footnotes
+
+I hope this helps other folks who might be struggling to wrap their minds around what is happening when they read FASTX files with this nice BioJulia package.
+
+[^1]: View the package on GitHub: [https://github.com/BioJulia/FASTX.jl](https://github.com/BioJulia/FASTX.jl) and also find the documentation here: [https://docs.juliahub.com/FASTX/ZwJmk/2.1.0/](https://docs.juliahub.com/FASTX/ZwJmk/2.1.0/).
+
+
+[^2]: https://docs.juliahub.com/FASTX/ZwJmk/2.1.0/files/
