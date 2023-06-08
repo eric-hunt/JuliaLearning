@@ -1,0 +1,9 @@
+---
+title: "Julia Learning"
+author: "Eric Hunt"
+format: gfm
+---
+
+# Welcome!
+
+This repo holds notebooks that I have used to better understand processes in the Julia language.
